@@ -39,6 +39,46 @@ pub struct ProcessedTweets {
     pub processed_text: String,
 }
 
+// Alchemyst Context Processor Models
+#[derive(Debug, Serialize)]
+pub struct ContextDocument {
+    pub content: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ContextMetadata {
+    pub file_name: String,
+    pub doc_type: String,
+    pub modalities: Vec<String>,
+    pub size: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ContextRequest {
+    pub user_id: String,
+    pub organization_id: Option<String>,
+    pub documents: Vec<ContextDocument>,
+    pub source: String,
+    pub context_type: String, // "resource", "conversation", "instruction"
+    pub scope: String, // "internal", "external"
+    pub metadata: ContextMetadata,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ContextResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ContextAdditionResponse {
+    pub success: bool,
+    pub message: String,
+    pub username: String,
+    pub tweet_count: usize,
+    pub context_added: bool,
+}
+
 #[derive(Serialize)]
 pub struct ErrorResponse {
     pub error: String,

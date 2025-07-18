@@ -1,7 +1,7 @@
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use std::env;
 use regex::Regex;
-use crate::api::models::tweet::{Tweet, TwitterApiResponse, ProcessedTweets};
+use crate::api::models::tweet::{Tweet, TwitterApiResponse, ProcessedTweets, ContextRequest, ContextDocument, ContextMetadata, ContextResponse};
 
 pub async fn fetch_original_tweets(username: &str, max: u8) -> Result<Vec<Tweet>, String> {
     let token = env::var("BEARER_TOKEN").map_err(|_| "Missing BEARER_TOKEN".to_string())?;
@@ -51,6 +51,72 @@ pub async fn fetch_and_process_tweets(username: &str, max: u8) -> Result<Process
     })
 }
 
+pub async fn send_to_context_processor(
+    processed_tweets: &ProcessedTweets,
+    user_id: &str
+) -> Result<ContextResponse, String> {
+    let alchemyst_api_key = env::var("ALCHEMYST_API_KEY")
+        .map_err(|_| "Missing ALCHEMYST_API_KEY".to_string())?;
+    let alchemyst_base_url = env::var("ALCHEMYST_BASE_URL")
+        .unwrap_or_else(|_| "https://api.alchemyst.ai".to_string());
+    
+    let url = format!("{}/api/v1/context/add", alchemyst_base_url);
+    
+    let context_request = ContextRequest {
+        user_id: user_id.to_string(),
+        organization_id: None,
+        documents: vec![ContextDocument {
+            content: processed_tweets.processed_text.clone(),
+        }],
+        source: "twitter_podcast_ai".to_string(),
+        context_type: "resource".to_string(),
+        scope: "internal".to_string(),
+        metadata: ContextMetadata {
+            file_name: format!("{}_tweets.txt", processed_tweets.username),
+            doc_type: "text/plain".to_string(),
+            modalities: vec!["text".to_string()],
+            size: processed_tweets.processed_text.len() as u64,
+        },
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .header(AUTHORIZATION, format!("Bearer {}", alchemyst_api_key))
+        .header(CONTENT_TYPE, "application/json")
+        .json(&context_request)
+        .send()
+        .await
+        .map_err(|e| format!("Context API request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Context API failed with status {}: {}", status, error_text));
+    }
+
+    let context_response: ContextResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse context API response: {}", e))?;
+
+    Ok(context_response)
+}
+
+pub async fn fetch_process_and_add_context(
+    username: &str, 
+    max: u8, 
+    user_id: &str
+) -> Result<(ProcessedTweets, ContextResponse), String> {
+    // Step 1: Fetch and process tweets
+    let processed_tweets = fetch_and_process_tweets(username, max).await?;
+    
+    // Step 2: Send to context processor
+    let context_response = send_to_context_processor(&processed_tweets, user_id).await?;
+    
+    Ok((processed_tweets, context_response))
+}
+
 fn process_tweets_to_text(tweets: &[Tweet], username: &str) -> String {
     let mut result = format!("Here are the recent tweets from @{} to be made into a podcast:\n\n", username);
     
@@ -77,4 +143,96 @@ fn clean_tweet_text(text: &str) -> String {
         .join(" ")
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::models::tweet::{Tweet, PublicMetrics};
+
+    #[test]
+    fn test_clean_tweet_text() {
+        let tweet_with_url = "Building a great app! Check it out: https://t.co/abc123def  ";
+        let cleaned = clean_tweet_text(tweet_with_url);
+        assert_eq!(cleaned, "Building a great app! Check it out:");
+
+        let tweet_without_url = "People who choose themselves always win no matter how bad the situation gets.";
+        let cleaned = clean_tweet_text(tweet_without_url);
+        assert_eq!(cleaned, "People who choose themselves always win no matter how bad the situation gets.");
+    }
+
+    #[test]
+    fn test_process_tweets_to_text() {
+        let tweets = vec![
+            Tweet {
+                id: "1".to_string(),
+                edit_history_tweet_ids: vec!["1".to_string()],
+                created_at: "2025-01-01T00:00:00.000Z".to_string(),
+                text: "First tweet https://t.co/abc123".to_string(),
+                public_metrics: PublicMetrics {
+                    retweet_count: 0,
+                    reply_count: 0,
+                    like_count: 5,
+                    quote_count: 0,
+                    bookmark_count: 1,
+                    impression_count: 100,
+                },
+            },
+            Tweet {
+                id: "2".to_string(),
+                edit_history_tweet_ids: vec!["2".to_string()],
+                created_at: "2025-01-02T00:00:00.000Z".to_string(),
+                text: "Second tweet".to_string(),
+                public_metrics: PublicMetrics {
+                    retweet_count: 1,
+                    reply_count: 2,
+                    like_count: 10,
+                    quote_count: 0,
+                    bookmark_count: 0,
+                    impression_count: 200,
+                },
+            },
+        ];
+
+        let result = process_tweets_to_text(&tweets, "testuser");
+        let expected = "Here are the recent tweets from @testuser to be made into a podcast:\n\nFirst tweet\n\nSecond tweet";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_context_request_creation() {
+        let processed_tweets = ProcessedTweets {
+            username: "testuser".to_string(),
+            tweet_count: 2,
+            processed_text: "Test tweet content".to_string(),
+        };
+
+        // This would be used in send_to_context_processor function
+        let context_request = ContextRequest {
+            user_id: "test_user_123".to_string(),
+            organization_id: None,
+            documents: vec![ContextDocument {
+                content: processed_tweets.processed_text.clone(),
+            }],
+            source: "twitter_podcast_ai".to_string(),
+            context_type: "resource".to_string(),
+            scope: "internal".to_string(),
+            metadata: ContextMetadata {
+                file_name: format!("{}_tweets.txt", processed_tweets.username),
+                doc_type: "text/plain".to_string(),
+                modalities: vec!["text".to_string()],
+                size: processed_tweets.processed_text.len() as u64,
+            },
+        };
+
+        assert_eq!(context_request.user_id, "test_user_123");
+        assert_eq!(context_request.source, "twitter_podcast_ai");
+        assert_eq!(context_request.context_type, "resource");
+        assert_eq!(context_request.scope, "internal");
+        assert_eq!(context_request.documents.len(), 1);
+        assert_eq!(context_request.documents[0].content, "Test tweet content");
+        assert_eq!(context_request.metadata.file_name, "testuser_tweets.txt");
+        assert_eq!(context_request.metadata.doc_type, "text/plain");
+        assert_eq!(context_request.metadata.size, 18); // "Test tweet content".len()
+    }
 }

@@ -11,6 +11,7 @@ Podcast AI is a Rust-based backend service that:
 - **Processes text** for AI consumption by removing URLs and noise
 - **Provides clean API endpoints** for podcast generation workflows
 - **Optimizes for AI models** with structured, context-ready text output
+- **Integrates with Alchemyst** context processor for automated podcast generation
 
 The system serves as the data pipeline for AI-powered podcast creation, transforming social media content into podcast-ready material.
 
@@ -20,6 +21,7 @@ The system serves as the data pipeline for AI-powered podcast creation, transfor
 
 - **Rust 1.70+** installed ([Install Rust](https://rustup.rs/))
 - **Twitter Developer Account** with Bearer Token
+- **Alchemyst API Key** for context processor integration
 - **Git** for cloning the repository
 
 ### Installation
@@ -37,11 +39,13 @@ cd backend
 
 3. **Set up environment variables**:
 ```bash
-# Create .env file with your Twitter Bearer Token
+# Create .env file with your API keys
 echo "BEARER_TOKEN=your_actual_twitter_bearer_token_here" > .env
+echo "ALCHEMYST_API_KEY=your_actual_alchemyst_api_key_here" >> .env
+echo "ALCHEMYST_BASE_URL=https://api.alchemyst.ai" >> .env
 ```
 
-> ⚠️ **Important**: Replace `your_actual_twitter_bearer_token_here` with your actual Twitter API Bearer Token
+> ⚠️ **Important**: Replace the placeholder values with your actual API keys
 
 4. **Install dependencies and build**:
 ```bash
@@ -71,6 +75,7 @@ The server will start on `http://127.0.0.1:8080` and display:
 
 ### External APIs
 - **X (Twitter) API v2** - Tweet data retrieval
+- **Alchemyst Context Processor** - AI-powered content processing
 - **Bearer Token Authentication** - Secure API access
 
 ### Data Format
@@ -140,6 +145,34 @@ curl "http://127.0.0.1:8080/tweets/processed?username=Rustix69&max=10"
 }
 ```
 
+### 3. Context Addition (Automated Pipeline)
+```http
+GET /tweets/context-addition
+```
+
+**Description**: Fetches tweets, processes them, and automatically sends to Alchemyst context processor for podcast generation.
+
+**Query Parameters**:
+- `username` (required): Twitter username without @ symbol  
+- `max` (optional): Number of tweets (10-100, default: 20)
+- `user_id` (optional): User identifier for context processor (default: "default_user")
+
+**Example Request**:
+```bash
+curl "http://127.0.0.1:8080/tweets/context-addition?username=Rustix69&max=10&user_id=podcast_user_123"
+```
+
+**Example Response**:
+```json
+{
+  "success": true,
+  "message": "Successfully processed 14 tweets from @Rustix69 and added to context processor. Context added successfully.",
+  "username": "Rustix69",
+  "tweet_count": 14,
+  "context_added": true
+}
+```
+
 ## 🔧 Environment Configuration
 
 Create a `.env` file in the `backend/` directory:
@@ -147,15 +180,26 @@ Create a `.env` file in the `backend/` directory:
 ```env
 # Twitter API Bearer Token (Required)
 BEARER_TOKEN=your_twitter_bearer_token_here
+
+# Alchemyst Context Processor (Required for context-addition endpoint)
+ALCHEMYST_API_KEY=your_alchemyst_api_key_here
+ALCHEMYST_BASE_URL=https://api.alchemyst.ai
 ```
 
-### Getting a Twitter Bearer Token
+### Getting API Keys
 
+#### Twitter Bearer Token
 1. Go to [Twitter Developer Portal](https://developer.twitter.com/)
 2. Create a new app or use existing app
 3. Navigate to "Keys and Tokens"
 4. Generate/copy your "Bearer Token"
 5. Add it to your `.env` file
+
+#### Alchemyst API Key
+1. Sign up at [Alchemyst AI](https://alchemyst.ai)
+2. Navigate to your API settings
+3. Generate or copy your API key
+4. Add it to your `.env` file
 
 ## 🧪 Testing
 
@@ -166,19 +210,23 @@ cargo test
 
 ### Test with cURL
 ```bash
-# Test processed endpoint (recommended for AI)
+# Test processed endpoint (clean text output)
 curl "http://127.0.0.1:8080/tweets/processed?username=elonmusk&max=5"
 
 # Test original endpoint (full data)
 curl "http://127.0.0.1:8080/tweets/original?username=elonmusk&max=5"
+
+# Test context-addition endpoint (automated pipeline)
+curl "http://127.0.0.1:8080/tweets/context-addition?username=elonmusk&max=5&user_id=test_user"
 ```
 
 ### Test with Postman
 1. **Method**: GET
-2. **URL**: `http://127.0.0.1:8080/tweets/processed`
+2. **URL**: `http://127.0.0.1:8080/tweets/context-addition`
 3. **Params**: 
-   - `username`: `elonmusk`
+   - `username`: `Rustix69`
    - `max`: `10`
+   - `user_id`: `podcast_user_123`
 
 ## 📁 Project Structure
 
@@ -194,7 +242,7 @@ backend/
 │       │   └── tweet_controller.rs # Tweet endpoint handlers
 │       ├── services/
 │       │   ├── mod.rs
-│       │   └── tweet_service.rs    # Twitter API integration
+│       │   └── tweet_service.rs    # Twitter + Alchemyst integration
 │       └── models/
 │           ├── mod.rs
 │           └── tweet.rs           # Data models
@@ -205,15 +253,20 @@ backend/
 
 ## 🔄 Development Workflow
 
-### For Podcast Generation:
+### For Manual Processing:
 1. **Fetch tweets**: Call `/tweets/processed` endpoint
 2. **Extract text**: Get the `processed_text` field
 3. **Send to AI**: Use the clean text with your Context API
 4. **Generate podcast**: Process with your AI model
 
+### For Automated Pipeline:
+1. **Single call**: Use `/tweets/context-addition` endpoint
+2. **Automatic processing**: Tweets → Clean Text → Alchemyst Context Processor
+3. **Podcast ready**: Context is added and ready for AI generation
+
 ### Data Flow:
 ```
-Twitter API → Rust Backend → Clean Text → AI/Context API → Podcast
+Twitter API → Rust Backend → Clean Text → Alchemyst Context Processor → Podcast Generation
 ```
 
 ## ⚡ Performance & Limits
@@ -222,21 +275,34 @@ Twitter API → Rust Backend → Clean Text → AI/Context API → Podcast
 - **Max Tweets**: 10-100 tweets per request
 - **Response Time**: Typically <2 seconds for 20 tweets
 - **Concurrent Requests**: Supported via Actix Web async handling
+- **Context Processing**: Real-time integration with Alchemyst
 
 ## 🛡️ Error Handling
 
 The API returns appropriate HTTP status codes:
 
 - **200 OK**: Successful request
-- **400 Bad Request**: Invalid parameters or Twitter API errors
+- **400 Bad Request**: Invalid parameters or API errors
+- **401 Unauthorized**: Missing or invalid API keys
 - **500 Internal Server Error**: Server errors
 
 **Error Response Format**:
 ```json
 {
-  "error": "No tweets found"
+  "error": "Missing ALCHEMYST_API_KEY"
 }
 ```
+
+## 🔮 Next Steps
+
+- [x] Twitter data fetching and processing
+- [x] Alchemyst context processor integration  
+- [ ] Add real-time podcast generation
+- [ ] Implement user authentication
+- [ ] Create frontend interface
+- [ ] Add database for caching tweets
+- [ ] Implement rate limiting
+- [ ] Add webhook support for real-time updates
 
 ## 📄 License
 
