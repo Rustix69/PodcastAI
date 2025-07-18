@@ -83,3 +83,107 @@ pub struct ContextAdditionResponse {
 pub struct ErrorResponse {
     pub error: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_twitter_api_response_deserialization() {
+        let json_response = r#"{
+            "data": [
+                {
+                    "id": "1945690992981717364",
+                    "edit_history_tweet_ids": [
+                        "1945690992981717364"
+                    ],
+                    "created_at": "2025-07-17T03:44:16.000Z",
+                    "text": "People who choose themselves always win no matter how bad the situation gets.",
+                    "public_metrics": {
+                        "retweet_count": 0,
+                        "reply_count": 0,
+                        "like_count": 5,
+                        "quote_count": 0,
+                        "bookmark_count": 1,
+                        "impression_count": 224
+                    }
+                }
+            ],
+            "meta": {
+                "newest_id": "1945690992981717364",
+                "oldest_id": "1943621572545167442",
+                "result_count": 14
+            }
+        }"#;
+
+        let response: TwitterApiResponse = serde_json::from_str(json_response)
+            .expect("Failed to deserialize Twitter API response");
+
+        assert_eq!(response.data.len(), 1);
+        assert_eq!(response.data[0].id, "1945690992981717364");
+        assert_eq!(response.data[0].public_metrics.like_count, 5);
+        assert_eq!(response.meta.result_count, 14);
+    }
+
+    #[test]
+    fn test_context_request_serialization() {
+        let context_request = ContextRequest {
+            user_id: "test_user".to_string(),
+            organization_id: None,
+            documents: vec![ContextDocument {
+                content: "Test content".to_string(),
+            }],
+            source: "twitter_podcast_ai".to_string(),
+            context_type: "resource".to_string(),
+            scope: "internal".to_string(),
+            metadata: ContextMetadata {
+                file_name: "test.txt".to_string(),
+                doc_type: "text/plain".to_string(),
+                modalities: vec!["text".to_string()],
+                size: 12,
+            },
+        };
+
+        let json = serde_json::to_string(&context_request).expect("Failed to serialize");
+        assert!(json.contains("test_user"));
+        assert!(json.contains("twitter_podcast_ai"));
+        assert!(json.contains("resource"));
+    }
+
+    #[test]
+    fn test_context_response_deserialization() {
+        let json_response = r#"{
+            "success": true,
+            "message": "Context added successfully"
+        }"#;
+
+        let response: ContextResponse = serde_json::from_str(json_response)
+            .expect("Failed to deserialize context response");
+
+        assert_eq!(response.success, true);
+        assert_eq!(response.message, "Context added successfully");
+    }
+
+    #[test]
+    fn test_processed_tweets_serialization() {
+        let processed = ProcessedTweets {
+            username: "testuser".to_string(),
+            tweet_count: 5,
+            processed_text: "Sample tweet text".to_string(),
+        };
+
+        let json = serde_json::to_string(&processed).expect("Failed to serialize");
+        assert!(json.contains("testuser"));
+        assert!(json.contains("\"tweet_count\":5"));
+    }
+
+    #[test]
+    fn test_error_response_serialization() {
+        let error = ErrorResponse {
+            error: "Test error message".to_string(),
+        };
+
+        let json = serde_json::to_string(&error).expect("Failed to serialize");
+        assert!(json.contains("Test error message"));
+    }
+}

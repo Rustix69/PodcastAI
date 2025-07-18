@@ -162,6 +162,41 @@ mod tests {
     }
 
     #[test]
+    fn test_clean_tweet_text_multiple_urls() {
+        let tweet_with_multiple_urls = "Check this out https://t.co/abc123 and also this https://t.co/def456 amazing!";
+        let cleaned = clean_tweet_text(tweet_with_multiple_urls);
+        assert_eq!(cleaned, "Check this out and also this amazing!");
+    }
+
+    #[test]
+    fn test_clean_tweet_text_only_url() {
+        let tweet_only_url = "https://t.co/abc123def";
+        let cleaned = clean_tweet_text(tweet_only_url);
+        assert_eq!(cleaned, "");
+    }
+
+    #[test]
+    fn test_clean_tweet_text_excessive_whitespace() {
+        let tweet_with_spaces = "Too    many   spaces    here   !";
+        let cleaned = clean_tweet_text(tweet_with_spaces);
+        assert_eq!(cleaned, "Too many spaces here !");
+    }
+
+    #[test]
+    fn test_clean_tweet_text_empty() {
+        let empty_tweet = "";
+        let cleaned = clean_tweet_text(empty_tweet);
+        assert_eq!(cleaned, "");
+    }
+
+    #[test]
+    fn test_clean_tweet_text_with_emojis() {
+        let tweet_with_emojis = "LFG 🚀 Hope so Gold will respect my levels. Otherwise C gaye guru. https://t.co/8n3oK3Ia4Z";
+        let cleaned = clean_tweet_text(tweet_with_emojis);
+        assert_eq!(cleaned, "LFG 🚀 Hope so Gold will respect my levels. Otherwise C gaye guru.");
+    }
+
+    #[test]
     fn test_process_tweets_to_text() {
         let tweets = vec![
             Tweet {
@@ -200,6 +235,38 @@ mod tests {
     }
 
     #[test]
+    fn test_process_tweets_to_text_empty_list() {
+        let tweets: Vec<Tweet> = vec![];
+        let result = process_tweets_to_text(&tweets, "testuser");
+        let expected = "Here are the recent tweets from @testuser to be made into a podcast:";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_process_tweets_to_text_single_tweet() {
+        let tweets = vec![
+            Tweet {
+                id: "1".to_string(),
+                edit_history_tweet_ids: vec!["1".to_string()],
+                created_at: "2025-01-01T00:00:00.000Z".to_string(),
+                text: "Only tweet https://t.co/test123".to_string(),
+                public_metrics: PublicMetrics {
+                    retweet_count: 0,
+                    reply_count: 0,
+                    like_count: 1,
+                    quote_count: 0,
+                    bookmark_count: 0,
+                    impression_count: 50,
+                },
+            },
+        ];
+
+        let result = process_tweets_to_text(&tweets, "singleuser");
+        let expected = "Here are the recent tweets from @singleuser to be made into a podcast:\n\nOnly tweet";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
     fn test_context_request_creation() {
         let processed_tweets = ProcessedTweets {
             username: "testuser".to_string(),
@@ -234,5 +301,62 @@ mod tests {
         assert_eq!(context_request.metadata.file_name, "testuser_tweets.txt");
         assert_eq!(context_request.metadata.doc_type, "text/plain");
         assert_eq!(context_request.metadata.size, 18); // "Test tweet content".len()
+    }
+
+    #[test]
+    fn test_context_request_with_organization() {
+        let processed_tweets = ProcessedTweets {
+            username: "corpuser".to_string(),
+            tweet_count: 1,
+            processed_text: "Corporate tweet".to_string(),
+        };
+
+        let context_request = ContextRequest {
+            user_id: "corp_user_456".to_string(),
+            organization_id: Some("org_123".to_string()),
+            documents: vec![ContextDocument {
+                content: processed_tweets.processed_text.clone(),
+            }],
+            source: "twitter_podcast_ai".to_string(),
+            context_type: "conversation".to_string(),
+            scope: "external".to_string(),
+            metadata: ContextMetadata {
+                file_name: format!("{}_tweets.txt", processed_tweets.username),
+                doc_type: "text/plain".to_string(),
+                modalities: vec!["text".to_string()],
+                size: processed_tweets.processed_text.len() as u64,
+            },
+        };
+
+        assert_eq!(context_request.organization_id, Some("org_123".to_string()));
+        assert_eq!(context_request.context_type, "conversation");
+        assert_eq!(context_request.scope, "external");
+    }
+
+    #[test]
+    fn test_context_metadata_size_calculation() {
+        let short_text = "Hi";
+        let long_text = "This is a much longer text that should have a significantly larger size value when calculated";
+        
+        assert_eq!(short_text.len(), 2);
+        assert_eq!(long_text.len(), 93);
+        
+        // Verify our size calculation is accurate
+        let metadata_short = ContextMetadata {
+            file_name: "test.txt".to_string(),
+            doc_type: "text/plain".to_string(),
+            modalities: vec!["text".to_string()],
+            size: short_text.len() as u64,
+        };
+        
+        let metadata_long = ContextMetadata {
+            file_name: "test.txt".to_string(),
+            doc_type: "text/plain".to_string(),
+            modalities: vec!["text".to_string()],
+            size: long_text.len() as u64,
+        };
+        
+        assert_eq!(metadata_short.size, 2);
+        assert_eq!(metadata_long.size, 93);
     }
 }
